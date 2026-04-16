@@ -3,6 +3,7 @@ Webhook/Connector Events API - receives data events from connected sources.
 Uses ConnectorEvent model for immutable event logging.
 """
 import hashlib
+import hmac
 import json
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from pydantic import BaseModel
@@ -15,6 +16,27 @@ from app.db.session import get_db
 from app.models.database import Connector, ConnectorEvent
 
 router = APIRouter()
+
+
+def _validate_webhook_signature(request_body: bytes, signature_header: str, secret: str) -> bool:
+    """
+    Validate webhook HMAC-SHA256 signature.
+    
+    Expects signature_header in format: "sha256=<hexdigest>"
+    """
+    if not signature_header.startswith("sha256="):
+        return False
+    
+    expected_signature = signature_header[7:]  # Remove "sha256=" prefix
+    
+    computed_signature = hmac.new(
+        secret.encode(),
+        request_body,
+        hashlib.sha256
+    ).hexdigest()
+    
+    # Use constant-time comparison to prevent timing attacks
+    return hmac.compare_digest(computed_signature, expected_signature)
 
 
 # Inline schemas for webhook events
@@ -40,9 +62,13 @@ class WebhookEventResponse(BaseModel):
 
 @router.post("/", response_model=WebhookEventResponse, status_code=status.HTTP_201_CREATED)
 async def receive_webhook(
+    request: Request,
     event_data: WebhookEventCreate,
     db: AsyncSession = Depends(get_db),
 ):
+    # Get raw request body for signature validation
+    body = await request.body()
+    
     # Verify connector exists
     result = await db.execute(
         select(Connector).where(Connector.id == event_data.connector_id)
@@ -50,6 +76,17 @@ async def receive_webhook(
     connector = result.scalar_one_or_none()
     if not connector:
         raise HTTPException(status_code=404, detail="Connector not found")
+    
+    # Validate webhook signature
+    signature_header = request.headers.get("X-Hub-Signature-256")
+    if not signature_header:
+        raise HTTPException(status_code=401, detail="Missing webhook signature")
+    
+    if not connector.webhook_secret:
+        raise HTTPException(status_code=500, detail="Connector webhook secret not configured")
+    
+    if not _validate_webhook_signature(body, signature_header, connector.webhook_secret):
+        raise HTTPException(status_code=401, detail="Invalid webhook signature")
 
     # Compute payload hash for deduplication
     payload_str = json.dumps(event_data.payload, sort_keys=True)
@@ -87,9 +124,18 @@ async def receive_webhook(
 @router.post("/{connector_id}/events", response_model=WebhookEventResponse, status_code=status.HTTP_201_CREATED)
 async def receive_connector_webhook(
     connector_id: str,
-    event_data: dict,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
+    # Get raw request body for signature validation
+    body = await request.body()
+    
+    # Parse event data from body
+    try:
+        event_data = await request.json()
+    except:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+    
     # Verify connector exists
     result = await db.execute(
         select(Connector).where(Connector.id == connector_id)
@@ -97,6 +143,17 @@ async def receive_connector_webhook(
     connector = result.scalar_one_or_none()
     if not connector:
         raise HTTPException(status_code=404, detail="Connector not found")
+    
+    # Validate webhook signature
+    signature_header = request.headers.get("X-Hub-Signature-256")
+    if not signature_header:
+        raise HTTPException(status_code=401, detail="Missing webhook signature")
+    
+    if not connector.webhook_secret:
+        raise HTTPException(status_code=500, detail="Connector webhook secret not configured")
+    
+    if not _validate_webhook_signature(body, signature_header, connector.webhook_secret):
+        raise HTTPException(status_code=401, detail="Invalid webhook signature")
 
     # Compute payload hash
     payload = event_data.get("payload", event_data)

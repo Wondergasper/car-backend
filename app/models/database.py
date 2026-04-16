@@ -480,6 +480,9 @@ class Connector(Base):
     config_encrypted = Column(BYTEA, nullable=False)
     config_encryption_iv = Column(BYTEA)  # Initialization vector
     
+    # Webhook security
+    webhook_secret = Column(String(255))  # Shared secret for HMAC signature validation
+    
     # Status & Health
     status = Column(SAEnum(ConnectorStatus), default=ConnectorStatus.INACTIVE)
     health_status = Column(String(50), default="unknown")  # healthy, degraded, unhealthy, unknown
