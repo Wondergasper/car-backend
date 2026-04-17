@@ -17,7 +17,10 @@ from app.services.audit_processor import run_audit
 router = APIRouter()
 
 
-@router.get("/", response_model=List[AuditResponse])
+from app.services.filing_service import file_audit
+
+
+@router.post("/", response_model=List[AuditResponse])
 async def list_audits(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -161,3 +164,94 @@ async def download_audit_report(
         raise HTTPException(status_code=500, detail="Failed to generate download URL")
 
     return {"download_url": presigned_url, "filename": f"CAR-{audit_id[:8]}.pdf"}
+
+
+@router.post("/{audit_id}/submit", response_model=AuditResponse)
+async def submit_audit_to_ndpc(
+    audit_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        # Ensure audit exists and belongs to current user's org
+        result = await db.execute(
+            select(Audit).where(
+                Audit.id == audit_id,
+                Audit.org_id == current_user.org_id
+            )
+        )
+        audit = result.scalar_one_or_none()
+        if not audit:
+            raise HTTPException(status_code=404, detail="Audit not found")
+
+        # Perform the filing via service
+        await file_audit(str(audit.id), db)
+        
+        # Refresh and return
+        await db.refresh(audit)
+        return audit
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Filing failed for audit {audit_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Regulatory filing failed")
+from app.services.fix_generator import FixGenerationService
+
+
+@router.get("/{audit_id}/remediation", status_code=status.HTTP_200_OK)
+async def generate_remediation_plans(
+    audit_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # Ensure audit exists
+    result = await db.execute(
+        select(Audit).where(
+            Audit.id == audit_id,
+            Audit.org_id == current_user.org_id
+        )
+    )
+    audit = result.scalar_one_or_none()
+    if not audit:
+        raise HTTPException(status_code=404, detail="Audit not found")
+
+    # Get findings
+    findings_result = await db.execute(
+        select(Finding).where(Finding.audit_id == audit_id)
+    )
+    findings = findings_result.scalars().all()
+
+    if not findings:
+        return {"message": "No findings to remediate", "plans": []}
+
+    # Generate fixes using the service (Gemini-powered or template-based)
+    fix_service = FixGenerationService()
+    
+    # Map raw DB findings to ComplianceFinding for the service
+    from app.core.rules_engine import ComplianceFinding
+    compliance_findings = []
+    for f in findings:
+        compliance_findings.append(ComplianceFinding(
+            rule_id=f.rule_id,
+            severity=f.severity,
+            title=f.title,
+            description=f.description,
+            recommendation=f.recommendation,
+            evidence=f.evidence or {},
+            auto_fixable=f.auto_fixable
+        ))
+
+    # Get organization context for better AI generation
+    org_result = await db.execute(
+        select(Organization).where(Organization.id == current_user.org_id)
+    )
+    org = org_result.scalar_one()
+    org_context = {
+        "company_name": org.name,
+        "dpo_name": org.dpo_name,
+        "dpo_email": org.dpo_email,
+        "industry": org.industry
+    }
+
+    plans = await fix_service.generate_all_fixes(compliance_findings, org_context)
+    return plans

@@ -30,6 +30,10 @@ async def init_db():
             await db.rollback()
 
 
+from fastapi.staticfiles import StaticFiles
+import os
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="CAR-Bot API",
@@ -50,6 +54,11 @@ def create_app() -> FastAPI:
 
     # Organization/tenant isolation middleware
     app.add_middleware(OrganizationMiddleware)
+
+    # Mount media directory for report downloads
+    if not os.path.exists("media"):
+        os.makedirs("media")
+    app.mount("/media", StaticFiles(directory="media"), name="media")
 
     # Include API routes
     app.include_router(api_router, prefix="/api")

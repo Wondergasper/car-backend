@@ -8,8 +8,13 @@ Clients don't just get a problem list, they get a solution package.
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from datetime import datetime
+import json
 
+import google.generativeai as genai
+from app.core.config import get_settings
 from app.core.rules_engine import ComplianceFinding
+
+settings = get_settings()
 
 
 @dataclass
@@ -743,6 +748,23 @@ Delivery: Encrypted email attachment or secure download link
 Timeline: Within 30 days of request
 """,
     },
+    "generic": {
+        "document_title": "Compliance Remediation Plan",
+        "remediation_type": "Policy Update",
+        "estimated_effort": "moderate",
+        "implementation_steps": [
+            "Review finding details and evidence",
+            "Update internal policies to address the root cause",
+            "Implement technical safeguards as recommended",
+            "Verify the fix with a follow-up audit"
+        ],
+        "document_content": """
+COMPLIANCE REMEDIATION PLAN
+
+This plan addresses the compliance violation identified in recent audits.
+The objective is to resolve the gap and prevent recurrence.
+"""
+    }
 }
 
 
@@ -755,11 +777,27 @@ class FixGenerationService:
 
     def __init__(self):
         self.templates = REMEDIATION_TEMPLATES
+        self._setup_gemini()
 
-    def generate_fix(self, finding: ComplianceFinding, org_context: Dict[str, Any] = None) -> RemediationDocument:
+    def _setup_gemini(self):
+        """Initialize Gemini client if API key is available."""
+        self.use_gemini = False
+        if settings.GOOGLE_API_KEY and settings.GOOGLE_API_KEY != "your_gemini_api_key_here":
+            try:
+                genai.configure(api_key=settings.GOOGLE_API_KEY)
+                self.model = genai.GenerativeModel("gemini-1.5-flash")
+                self.use_gemini = True
+            except Exception as e:
+                print(f"Failed to initialize Gemini: {e}")
+
+    async def generate_fix(self, finding: ComplianceFinding, org_context: Dict[str, Any] = None) -> RemediationDocument:
         """
         Generate a remediation document for a single finding.
+        Uses Google Gemini if available, otherwise falls back to templates.
         """
+        if self.use_gemini:
+            return await self._generate_gemini_fix(finding, org_context)
+            
         template_key = finding.remediation_template or "generic"
         template = self.templates.get(template_key)
 
@@ -793,13 +831,94 @@ class FixGenerationService:
             generated_at=datetime.utcnow().isoformat(),
         )
 
-    def generate_all_fixes(
+    async def _generate_gemini_fix(self, finding: ComplianceFinding, org_context: Dict[str, Any] = None) -> RemediationDocument:
+        """Use Google Gemini to generate a professional remediation document."""
+        org_name = (org_context or {}).get("company_name", "the Organization")
+        
+        prompt = f"""
+        You are an expert Data Protection Officer and Compliance Consultant specializing in the Nigeria Data Protection Act 2023 (NDPA 2023).
+        
+        Generate a professional remediation document for the following compliance finding:
+        
+        ORGANIZATION: {org_name}
+        FINDING TITLE: {finding.title}
+        FINDING DESCRIPTION: {finding.description}
+        RULE VIOLATED: {finding.rule_id}
+        SEVERITY: {finding.severity}
+        EVIDENCE: {json.dumps(finding.evidence, indent=2, default=str)}
+        
+        Return a JSON object with the following fields:
+        1. document_title: A professional title for the plan.
+        2. remediation_type: One of "Policy", "Technical", "Procedure", or "Assessment".
+        3. document_content: A detailed, multi-section markdown document explaining the issue and the fix in the context of NDPA 2023. Mention specific articles if possible.
+        4. implementation_steps: A list of 5-10 actionable steps to fix the issue.
+        5. estimated_effort: One of "quick", "moderate", "extensive".
+        """
+        
+        try:
+            response = await self.model.generate_content_async(
+                prompt,
+                generation_config=genai.types.GenerationConfig(
+                    response_mime_type="application/json",
+                )
+            )
+            data = json.loads(response.text)
+            
+            return RemediationDocument(
+                finding_rule_id=finding.rule_id,
+                finding_title=finding.title,
+                finding_description=finding.description,
+                finding_severity=str(finding.severity),
+                remediation_type=data.get("remediation_type", "General"),
+                document_title=data.get("document_title", f"Remediation Plan: {finding.title}"),
+                document_content=data.get("document_content", ""),
+                implementation_steps=data.get("implementation_steps", []),
+                estimated_effort=data.get("estimated_effort", "moderate"),
+                template_used="gemini-1.5-flash",
+                generated_at=datetime.utcnow().isoformat(),
+            )
+        except Exception as e:
+            print(f"Gemini generation failed, falling back to templates: {e}")
+            # Manual fallback to templates if Gemini fails
+            return self.generate_fix_sync(finding, org_context)
+
+    def generate_fix_sync(self, finding: ComplianceFinding, org_context: Dict[str, Any] = None) -> RemediationDocument:
+        """Synchronous version of template-based fix generation."""
+        template_key = finding.remediation_template or "generic"
+        template = self.templates.get(template_key)
+        if not template:
+            return self._generate_generic_fix(finding)
+
+        content = template["document_content"]
+        content = self._fill_variables(content, org_context or {})
+        content = content.replace("{finding_description}", finding.description)
+        content = content.replace("{finding_rule_id}", finding.rule_id)
+
+        if finding.evidence:
+            content += "\n\nEVIDENCE AND DETAILS:\n"
+            content += json.dumps(finding.evidence, indent=2, default=str)
+
+        return RemediationDocument(
+            finding_rule_id=finding.rule_id,
+            finding_title=finding.title,
+            finding_description=finding.description,
+            finding_severity=str(finding.severity),
+            remediation_type=template.get("remediation_type", "General"),
+            document_title=template["document_title"],
+            document_content=content,
+            implementation_steps=template.get("implementation_steps", []),
+            estimated_effort=template.get("estimated_effort", "moderate"),
+            template_used=template_key,
+            generated_at=datetime.utcnow().isoformat(),
+        )
+
+    async def generate_all_fixes(
         self,
         findings: List[ComplianceFinding],
         org_context: Dict[str, Any] = None,
     ) -> List[RemediationDocument]:
         """Generate remediation documents for all findings."""
-        return [self.generate_fix(f, org_context) for f in findings]
+        return [await self.generate_fix(f, org_context) for f in findings]
 
     def _generate_generic_fix(self, finding: ComplianceFinding) -> RemediationDocument:
         """Generate a generic fix document when no specific template exists."""

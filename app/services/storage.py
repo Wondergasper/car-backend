@@ -1,5 +1,5 @@
-import boto3
-from botocore.exceptions import ClientError
+import os
+import shutil
 from typing import Optional
 from app.core.config import get_settings
 
@@ -7,55 +7,54 @@ settings = get_settings()
 
 
 class ObjectStorageService:
-    """Service for managing object storage (S3-compatible)."""
+    """
+    Simplified storage service using the local filesystem.
+    Replaced AWS S3 implementation.
+    """
 
     def __init__(self):
-        self.s3_client = boto3.client(
-            "s3",
-            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-            region_name=settings.AWS_REGION,
-        )
-        self.bucket = settings.OBJECT_STORAGE_BUCKET
+        self.base_dir = "media"
+        if not os.path.exists(self.base_dir):
+            os.makedirs(self.base_dir)
 
     async def upload_file(self, file_path: str, object_name: str) -> Optional[str]:
-        """Upload a file to object storage."""
+        """Upload a file to local storage."""
         try:
-            self.s3_client.upload_file(file_path, self.bucket, object_name)
-            return f"https://{self.bucket}.s3.{settings.AWS_REGION}.amazonaws.com/{object_name}"
-        except ClientError as e:
-            print(f"Error uploading file: {e}")
+            dest_path = os.path.join(self.base_dir, object_name)
+            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+            shutil.copy2(file_path, dest_path)
+            # In a real local setup, this would be a relative URL served by FastAPI
+            return f"/media/{object_name}"
+        except Exception as e:
+            print(f"Local storage error (upload): {e}")
             return None
 
     async def download_file(self, object_name: str, file_path: str) -> bool:
-        """Download a file from object storage."""
+        """Download a file from local storage."""
         try:
-            self.s3_client.download_file(self.bucket, object_name, file_path)
+            src_path = os.path.join(self.base_dir, object_name)
+            shutil.copy2(src_path, file_path)
             return True
-        except ClientError as e:
-            print(f"Error downloading file: {e}")
+        except Exception as e:
+            print(f"Local storage error (download): {e}")
             return False
 
     async def get_presigned_url(self, object_name: str, expiration: int = 3600) -> Optional[str]:
-        """Generate a presigned URL for downloading a file."""
-        try:
-            response = self.s3_client.generate_presigned_url(
-                "get_object",
-                Params={"Bucket": self.bucket, "Key": object_name},
-                ExpiresIn=expiration,
-            )
-            return response
-        except ClientError as e:
-            print(f"Error generating presigned URL: {e}")
-            return None
+        """
+        Generate a URL for downloading a file.
+        For local storage, returns a direct link.
+        """
+        return f"http://localhost:8000/media/{object_name}"
 
     async def delete_file(self, object_name: str) -> bool:
-        """Delete a file from object storage."""
+        """Delete a file from local storage."""
         try:
-            self.s3_client.delete_object(Bucket=self.bucket, Key=object_name)
+            path = os.path.join(self.base_dir, object_name)
+            if os.path.exists(path):
+                os.remove(path)
             return True
-        except ClientError as e:
-            print(f"Error deleting file: {e}")
+        except Exception as e:
+            print(f"Local storage error (delete): {e}")
             return False
 
 

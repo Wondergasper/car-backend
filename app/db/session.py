@@ -15,10 +15,13 @@ engine = create_async_engine(
     max_overflow=40,
     pool_timeout=30,
     pool_recycle=1800,
+    connect_args={"statement_cache_size": 0}
 )
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-Base = DeclarativeBase()
+
+class Base(DeclarativeBase):
+    pass
 
 
 async def get_db() -> AsyncSession:
@@ -158,4 +161,3 @@ async def _setup_rls(conn):
             logger.debug(f"RLS setup (may already exist): {e}")
     
     logger.info("Row-Level Security policies configured")
-

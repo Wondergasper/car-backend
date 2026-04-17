@@ -137,7 +137,7 @@ class Organization(Base):
     
     # Metadata
     settings = Column(JSONB, default=dict)  # org-level settings
-    metadata = Column(JSONB, default=dict)  # custom metadata
+    meta_data = Column(JSONB, default=dict)  # custom metadata
     
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -313,7 +313,8 @@ class Document(Base):
     # Relationships
     organization = relationship("Organization", back_populates="documents")
     audit = relationship("Audit")
-    versions = relationship("DocumentVersion", back_populates="document")
+    versions = relationship("DocumentVersion", back_populates="document", foreign_keys="[DocumentVersion.document_id]")
+    current_version = relationship("DocumentVersion", foreign_keys=[current_version_id])
     generated_by_user = relationship("User", foreign_keys=[generated_by])
 
 
@@ -340,7 +341,7 @@ class DocumentVersion(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Relationships
-    document = relationship("Document", back_populates="versions")
+    document = relationship("Document", back_populates="versions", foreign_keys=[document_id])
     creator = relationship("User")
 
     __table_args__ = (
@@ -373,9 +374,12 @@ class AuditTrail(Base):
     # Data
     old_values = Column(JSONB)  # Before state (if applicable)
     new_values = Column(JSONB)  # After state (if applicable)
-    metadata = Column(JSONB)  # Additional context
+    meta_data = Column(JSONB)  # Additional context
     
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    # Relationships
+    organization = relationship("Organization", back_populates="audit_trail")
 
     __table_args__ = (
         Index("idx_audit_trail_org_time", "org_id", "created_at"),
@@ -412,12 +416,6 @@ class SubscriptionPlan(Base):
     
     # Features
     features = Column(JSONB, nullable=False, default=dict)
-    # e.g., {
-    #     "continuous_monitoring": true,
-    #     "api_access": true,
-    #     "custom_reports": false,
-    #     "priority_support": false
-    # }
     
     # Display
     display_order = Column(Integer, default=0)
