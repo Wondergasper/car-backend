@@ -74,5 +74,12 @@ class CryptoService:
         return Fernet.generate_key().decode()
 
 
-# Singleton instance
-crypto_service = CryptoService()
+# Lazy singleton instance
+_crypto_service: Optional[CryptoService] = None
+
+def get_crypto_service() -> CryptoService:
+    """Get or create the crypto service singleton."""
+    global _crypto_service
+    if _crypto_service is None:
+        _crypto_service = CryptoService()
+    return _crypto_service

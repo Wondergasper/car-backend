@@ -13,7 +13,7 @@ from app.db.session import get_db
 from app.models.database import User, Connector, Organization
 from app.schemas.schemas import ConnectorCreate, ConnectorUpdate, ConnectorResponse
 from app.api.dependencies import get_current_user
-from app.core.crypto import crypto_service
+from app.core.crypto import get_crypto_service
 
 router = APIRouter()
 
@@ -21,13 +21,13 @@ router = APIRouter()
 def _encrypt_config(config: dict) -> tuple[bytes, bytes]:
     """Encrypt connector config and return (ciphertext, iv)."""
     config_json = json.dumps(config)
-    ciphertext = crypto_service.encrypt(config_json)
+    ciphertext = get_crypto_service().encrypt(config_json)
     return ciphertext, b""  # Fernet includes IV internally
 
 
 def _decrypt_config(ciphertext: bytes) -> dict:
     """Decrypt connector config from ciphertext bytes."""
-    config_json = crypto_service.decrypt(ciphertext)
+    config_json = get_crypto_service().decrypt(ciphertext)
     return json.loads(config_json)
 
 
