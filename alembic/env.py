@@ -19,7 +19,7 @@ settings = get_settings()
 
 def run_migrations_offline():
     """Run migrations in 'offline' mode."""
-    url = settings.DATABASE_URL
+    url = settings.db_url
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -40,7 +40,7 @@ def do_run_migrations(connection):
 
 async def run_migrations_online():
     """Run migrations in 'online' mode."""
-    connectable = create_async_engine(settings.DATABASE_URL)
+    connectable = create_async_engine(settings.db_url)
 
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)

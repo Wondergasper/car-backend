@@ -84,6 +84,7 @@ class ConnectorCreate(BaseModel):
     connector_type_id: UUID
     config: dict
     sync_interval: Optional[int] = Field(default=300, ge=60, le=86400)
+    webhook_secret: Optional[str] = None
 
 
 class ConnectorUpdate(BaseModel):
@@ -92,6 +93,7 @@ class ConnectorUpdate(BaseModel):
     status: Optional[ConnectorStatus] = None
     sync_interval: Optional[int] = None
     sync_enabled: Optional[bool] = None
+    webhook_secret: Optional[str] = None
 
 
 class ConnectorResponse(BaseModel):

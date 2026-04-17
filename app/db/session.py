@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 engine = create_async_engine(
-    settings.DATABASE_URL,
+    settings.db_url,
     echo=False,
     pool_size=20,
     max_overflow=40,

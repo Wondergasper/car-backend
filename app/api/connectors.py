@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 import json
+import secrets
 from datetime import datetime
 from app.db.session import get_db
 from app.models.database import User, Connector, Organization
@@ -75,6 +76,9 @@ async def create_connector(
     # Encrypt config before storing
     config_ciphertext, config_iv = _encrypt_config(connector_data.config)
 
+    # Generate webhook secret if not provided
+    webhook_secret = connector_data.webhook_secret or secrets.token_urlsafe(32)
+
     new_connector = Connector(
         org_id=org.id,
         created_by=current_user.id,
@@ -83,6 +87,7 @@ async def create_connector(
         config_encrypted=config_ciphertext,
         config_encryption_iv=config_iv,
         sync_interval=connector_data.sync_interval,
+        webhook_secret=webhook_secret,
     )
     db.add(new_connector)
     await db.commit()
