@@ -14,6 +14,7 @@ class UserCreate(BaseModel):
     password: str = Field(min_length=8, max_length=100)
     company_name: str = Field(min_length=2, max_length=255)
     industry: Optional[str] = Field(default=None, max_length=100)
+    size: Optional[int] = Field(default=None)
 
 
 class UserLogin(BaseModel):
@@ -45,7 +46,7 @@ class OrganizationCreate(BaseModel):
     industry: Optional[str] = None
     size: Optional[int] = None
     dpo_name: Optional[str] = None
-    dpo_email: Optional[EmailStr] = None
+    dpo_email: Optional[str] = None
 
 
 class OrganizationUpdate(BaseModel):
