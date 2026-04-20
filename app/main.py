@@ -14,10 +14,12 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.router import router as api_router
+from app.api.badge import router as badge_router
 from app.core.config import get_settings
 from app.middleware import OrganizationMiddleware
 from app.db.session import engine, Base, async_session
 from app.db.seeder import seed_database
+from app.services.scheduler_service import start_scheduler, stop_scheduler
 import logging
 
 settings = get_settings()
@@ -51,7 +53,7 @@ def create_app() -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3000", "http://localhost:3001"],
+        allow_origins=settings.ALLOWED_ORIGINS,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -64,16 +66,22 @@ def create_app() -> FastAPI:
     app.mount("/media", StaticFiles(directory="media"), name="media")
 
     app.include_router(api_router, prefix="/api")
+    app.include_router(badge_router)  # /badge/{org_slug} — public, no prefix
 
     @app.on_event("startup")
     async def startup():
         try:
             await init_db()
+            start_scheduler()
             logger.info("CAR-Bot API started.")
         except Exception as e:
             logger.error(f"Startup initialization failed: {e}", exc_info=True)
-            # Don't crash - continue without database seeding
             logger.warning("Continuing without database initialization.")
+
+    @app.on_event("shutdown")
+    async def shutdown():
+        stop_scheduler()
+        logger.info("CAR-Bot API shutting down.")
 
     @app.get("/health")
     async def health_check():

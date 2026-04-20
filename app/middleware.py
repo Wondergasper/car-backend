@@ -2,7 +2,8 @@
 FastAPI middleware for multi-tenant security.
 Sets PostgreSQL app.current_org_id for RLS enforcement.
 """
-from fastapi import Request, HTTPException, status
+from fastapi import Request, status
+from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 from sqlalchemy import text
@@ -19,32 +20,46 @@ class OrganizationMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         # Skip auth for public endpoints
         public_paths = ["/health", "/docs", "/redoc", "/openapi.json"]
-        if request.url.path in public_paths or request.url.path.startswith("/api/auth/"):
+        is_public = (
+            request.url.path in public_paths
+            or request.url.path.startswith("/api/auth/")
+            or request.url.path.startswith("/media/")
+            or request.url.path.startswith("/badge/")
+        )
+        # WebSocket upgrade for audit progress (token passed as query param)
+        is_ws = request.headers.get("upgrade", "").lower() == "websocket"
+        if is_public or is_ws:
             return await call_next(request)
         
         # Extract and verify token
         auth_header = request.headers.get("Authorization")
         if not auth_header or not auth_header.startswith("Bearer "):
-            raise HTTPException(
+            return JSONResponse(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Missing authentication",
+                content={"detail": "Missing authentication"},
             )
         
         token = auth_header.replace("Bearer ", "")
-        payload = decode_access_token(token)
-        if not payload:
-            raise HTTPException(
+        try:
+            payload = decode_access_token(token)
+            if not payload:
+                return JSONResponse(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    content={"detail": "Invalid or expired token"},
+                )
+        except Exception:
+            return JSONResponse(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or expired token",
+                content={"detail": "Invalid or expired token"},
             )
         
         user_id = payload.get("sub")
         org_id = payload.get("org_id")
         
         if not org_id:
-            raise HTTPException(
+            return JSONResponse(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="No organization associated with user",
+                content={"detail": "No organization associated with user"},
             )
         
         # Set org context in request state

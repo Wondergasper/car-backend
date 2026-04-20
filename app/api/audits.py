@@ -3,33 +3,42 @@ Audits API - org-scoped with detailed tracking.
 Triggers the audit processor to run the full pipeline:
 connector events → PII scanner → rules engine → findings → score.
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, WebSocket, WebSocketDisconnect
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List
-from datetime import datetime, timedelta
+from typing import List, Optional
+from datetime import datetime, timedelta, timezone
 from app.db.session import get_db
-from app.models.database import User, Audit, Finding, Organization, AuditStatus
+from app.models.database import (
+    User, Audit, Finding, Organization, AuditStatus, FindingStatus, FindingSeverity
+)
 from app.schemas.schemas import AuditGenerate, AuditResponse, FindingResponse
 from app.api.dependencies import get_current_user
 from app.services.audit_processor import run_audit
+import asyncio
+import logging
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
 from app.services.filing_service import file_audit
 
 
-@router.post("/", response_model=List[AuditResponse])
+@router.get("/", response_model=List[AuditResponse])
 async def list_audits(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    skip: int = 0,
+    limit: int = 50,
 ):
     result = await db.execute(
         select(Audit)
         .where(Audit.org_id == current_user.org_id)
         .order_by(Audit.created_at.desc())
+        .offset(skip)
+        .limit(limit)
     )
     audits = result.scalars().all()
     return audits
@@ -173,7 +182,6 @@ async def submit_audit_to_ndpc(
     current_user: User = Depends(get_current_user),
 ):
     try:
-        # Ensure audit exists and belongs to current user's org
         result = await db.execute(
             select(Audit).where(
                 Audit.id == audit_id,
@@ -184,10 +192,7 @@ async def submit_audit_to_ndpc(
         if not audit:
             raise HTTPException(status_code=404, detail="Audit not found")
 
-        # Perform the filing via service
         await file_audit(str(audit.id), db)
-        
-        # Refresh and return
         await db.refresh(audit)
         return audit
     except ValueError as e:
@@ -195,7 +200,216 @@ async def submit_audit_to_ndpc(
     except Exception as e:
         logger.error(f"Filing failed for audit {audit_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Regulatory filing failed")
+
+
 from app.services.fix_generator import FixGenerationService
+
+
+# ─── WebSocket: Real-Time Audit Progress ────────────────────────────────────
+
+@router.websocket("/ws/{audit_id}/progress")
+async def audit_progress_ws(websocket: WebSocket, audit_id: str, db: AsyncSession = Depends(get_db)):
+    """Stream live audit progress to the client."""
+    await websocket.accept()
+    try:
+        while True:
+            result = await db.execute(select(Audit).where(Audit.id == audit_id))
+            audit = result.scalar_one_or_none()
+            if not audit:
+                await websocket.send_json({"error": "Audit not found"})
+                break
+
+            await websocket.send_json({
+                "audit_id": str(audit.id),
+                "status": audit.status.value if hasattr(audit.status, "value") else audit.status,
+                "progress": float(audit.progress or 0),
+                "findings_count": audit.findings_count or 0,
+                "compliance_score": audit.compliance_score,
+            })
+
+            terminal_statuses = {AuditStatus.COMPLETED, AuditStatus.FAILED, AuditStatus.CANCELLED}
+            if audit.status in terminal_statuses:
+                break
+
+            await asyncio.sleep(2)
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.error(f"WebSocket error for audit {audit_id}: {e}")
+    finally:
+        await websocket.close()
+
+
+# ─── Bulk Finding Resolve / Accept ──────────────────────────────────────────
+
+class FindingUpdate(AuditResponse.__class__):
+    pass
+
+from pydantic import BaseModel as _BaseModel
+
+class FindingStatusUpdate(_BaseModel):
+    status: FindingStatus
+    resolution_notes: Optional[str] = None
+
+class BulkFindingAction(_BaseModel):
+    ids: List[str]
+    action: str  # "resolve", "accept", "false_positive"
+    resolution_notes: Optional[str] = None
+
+
+@router.patch("/{audit_id}/findings/{finding_id}", response_model=FindingResponse)
+async def update_finding_status(
+    audit_id: str,
+    finding_id: str,
+    data: FindingStatusUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Update a single finding's status (resolve, accept, mark false positive)."""
+    result = await db.execute(
+        select(Finding).where(
+            Finding.id == finding_id,
+            Finding.audit_id == audit_id,
+            Finding.org_id == current_user.org_id,
+        )
+    )
+    finding = result.scalar_one_or_none()
+    if not finding:
+        raise HTTPException(status_code=404, detail="Finding not found")
+
+    finding.status = data.status
+    finding.resolution_notes = data.resolution_notes
+    if data.status == FindingStatus.RESOLVED:
+        finding.resolved_by = current_user.id
+        finding.resolved_at = datetime.now(timezone.utc)
+
+    await db.commit()
+    await db.refresh(finding)
+    return finding
+
+
+@router.post("/{audit_id}/findings/batch")
+async def bulk_update_findings(
+    audit_id: str,
+    data: BulkFindingAction,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Bulk update multiple findings at once."""
+    action_map = {
+        "resolve": FindingStatus.RESOLVED,
+        "accept": FindingStatus.ACCEPTED,
+        "false_positive": FindingStatus.FALSE_POSITIVE,
+        "in_review": FindingStatus.IN_REVIEW,
+    }
+    if data.action not in action_map:
+        raise HTTPException(status_code=400, detail=f"Unknown action '{data.action}'. Use: resolve, accept, false_positive, in_review")
+
+    new_status = action_map[data.action]
+    updated = 0
+
+    for finding_id in data.ids:
+        result = await db.execute(
+            select(Finding).where(
+                Finding.id == finding_id,
+                Finding.audit_id == audit_id,
+                Finding.org_id == current_user.org_id,
+            )
+        )
+        finding = result.scalar_one_or_none()
+        if finding:
+            finding.status = new_status
+            finding.resolution_notes = data.resolution_notes
+            if new_status == FindingStatus.RESOLVED:
+                finding.resolved_by = current_user.id
+                finding.resolved_at = datetime.now(timezone.utc)
+            updated += 1
+
+    await db.commit()
+    return {"updated": updated, "action": data.action}
+
+
+# ─── Audit Diff / Changelog ─────────────────────────────────────────────────
+
+@router.get("/{audit_id}/diff")
+async def get_audit_diff(
+    audit_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Compare this audit with the previous one — surface regressions and improvements."""
+    result = await db.execute(
+        select(Audit).where(
+            Audit.id == audit_id,
+            Audit.org_id == current_user.org_id
+        )
+    )
+    current_audit = result.scalar_one_or_none()
+    if not current_audit:
+        raise HTTPException(status_code=404, detail="Audit not found")
+    if current_audit.status != AuditStatus.COMPLETED:
+        raise HTTPException(status_code=400, detail="Audit must be completed to generate a diff")
+
+    # Get the previously completed audit
+    prev_result = await db.execute(
+        select(Audit)
+        .where(
+            Audit.org_id == current_user.org_id,
+            Audit.status == AuditStatus.COMPLETED,
+            Audit.created_at < current_audit.created_at,
+        )
+        .order_by(Audit.created_at.desc())
+        .limit(1)
+    )
+    prev_audit = prev_result.scalar_one_or_none()
+
+    if not prev_audit:
+        return {
+            "message": "No previous audit to compare against",
+            "score_delta": None,
+            "new_findings": [],
+            "resolved_findings": [],
+            "regressions": 0,
+            "improvements": 0,
+        }
+
+    # Get rule_ids from both audits
+    cur_findings_res = await db.execute(select(Finding).where(Finding.audit_id == current_audit.id))
+    cur_findings = cur_findings_res.scalars().all()
+
+    prev_findings_res = await db.execute(select(Finding).where(Finding.audit_id == prev_audit.id))
+    prev_findings = prev_findings_res.scalars().all()
+
+    cur_rule_ids = {f.rule_id for f in cur_findings}
+    prev_rule_ids = {f.rule_id for f in prev_findings}
+
+    new_rule_ids = cur_rule_ids - prev_rule_ids
+    resolved_rule_ids = prev_rule_ids - cur_rule_ids
+
+    new_findings = [f for f in cur_findings if f.rule_id in new_rule_ids]
+    resolved_findings = [f for f in prev_findings if f.rule_id in resolved_rule_ids]
+
+    score_delta = None
+    if current_audit.compliance_score is not None and prev_audit.compliance_score is not None:
+        score_delta = current_audit.compliance_score - prev_audit.compliance_score
+
+    return {
+        "current_audit_id": str(current_audit.id),
+        "previous_audit_id": str(prev_audit.id),
+        "score_delta": score_delta,
+        "current_score": current_audit.compliance_score,
+        "previous_score": prev_audit.compliance_score,
+        "regressions": len(new_findings),
+        "improvements": len(resolved_findings),
+        "new_findings": [
+            {"rule_id": f.rule_id, "title": f.title, "severity": f.severity.value if hasattr(f.severity, "value") else f.severity}
+            for f in new_findings
+        ],
+        "resolved_findings": [
+            {"rule_id": f.rule_id, "title": f.title, "severity": f.severity.value if hasattr(f.severity, "value") else f.severity}
+            for f in resolved_findings
+        ],
+    }
 
 
 @router.get("/{audit_id}/remediation", status_code=status.HTTP_200_OK)

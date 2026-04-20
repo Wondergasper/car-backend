@@ -9,7 +9,7 @@ This is the synchronous processor that runs when an audit is triggered.
 import json
 import logging
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import select, update
@@ -48,7 +48,7 @@ class AuditProcessor:
         """
         audit.status = AuditStatus.IN_PROGRESS
         audit.progress = 5.0
-        audit.started_at = datetime.utcnow()
+        audit.started_at = datetime.now(timezone.utc)
         await self.db.commit()
 
         try:
@@ -73,7 +73,7 @@ class AuditProcessor:
             await self._update_audit(audit)
 
             # Step 5: Save findings to database
-            await self._save_findings(audit, findings, context)
+            await self._save_findings(audit, findings, events)
             audit.progress = 90.0
             await self._update_audit(audit)
 
@@ -87,7 +87,7 @@ class AuditProcessor:
             audit.low_count = summary["by_severity"].get("low", 0)
             audit.info_count = summary["by_severity"].get("info", 0)
             audit.status = AuditStatus.COMPLETED
-            audit.completed_at = datetime.utcnow()
+            audit.completed_at = datetime.now(timezone.utc)
             audit.progress = 100.0
 
             await self.db.commit()
@@ -294,11 +294,10 @@ class AuditProcessor:
         self,
         audit: Audit,
         findings: List[ComplianceFinding],
-        context: AuditContext,
+        events: List[ConnectorEvent],
     ):
         """Save compliance findings to the database."""
         for f in findings:
-            # Map severity enum to string for DB
             severity_str = f.severity.value if hasattr(f.severity, 'value') else str(f.severity)
             severity_enum = FindingSeverity(severity_str) if severity_str in [s.value for s in FindingSeverity] else FindingSeverity.HIGH
 
@@ -318,12 +317,10 @@ class AuditProcessor:
             )
             self.db.add(finding)
 
-        # Mark events as processed
-        connector_ids = self._get_connector_ids(audit)
-        events = await self._collect_events(connector_ids)
+        # Mark the events passed in as processed (no double-fetch)
         for event in events:
             event.processed = True
-            event.processed_at = datetime.utcnow()
+            event.processed_at = datetime.now(timezone.utc)
             self.db.add(event)
 
         await self.db.commit()

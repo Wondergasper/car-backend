@@ -8,9 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 import json
 import secrets
-from datetime import datetime
+from datetime import datetime, timezone
 from app.db.session import get_db
-from app.models.database import User, Connector, Organization
+from app.models.database import User, Connector, Organization, ConnectorType
 from app.schemas.schemas import ConnectorCreate, ConnectorUpdate, ConnectorResponse
 from app.api.dependencies import get_current_user
 from app.core.crypto import get_crypto_service
@@ -165,7 +165,7 @@ async def delete_connector(
 
     # Soft delete
     from datetime import datetime
-    connector.deleted_at = datetime.utcnow()
+    connector.deleted_at = datetime.now(timezone.utc)
     await db.commit()
     return None
 
@@ -241,5 +241,3 @@ async def test_connector(
             "message": f"Connection test failed: {str(e)}",
         }
 
-
-from app.models.database import ConnectorType
