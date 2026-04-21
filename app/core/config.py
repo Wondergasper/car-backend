@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     ALLOWED_ORIGINS: List[str] = [
         "http://localhost:3000",
         "http://localhost:3001",
+        "http://102.91.71.127",
+        "https://car-delta-two.vercel.app",
     ]
 
     @property
