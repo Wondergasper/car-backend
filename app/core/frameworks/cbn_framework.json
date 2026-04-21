@@ -1,0 +1,29 @@
+﻿{
+  "framework": "CBN Cybersecurity Framework",
+  "version": "2023",
+  "issuing_body": "CBN",
+  "source": "cbn.gov.ng",
+  "controls": [
+    {
+      "id": "CBN-CS-2.1",
+      "title": "Customer Data Protection",
+      "description": "Financial institutions must implement technical and organisational measures to protect customer PII including BVN, account numbers, and transaction history.",
+      "evidence_requirements": ["data_security_policy", "encryption_evidence", "access_controls"],
+      "maps_to": ["NDPA-2023-Art24"]
+    },
+    {
+      "id": "CBN-CS-3.1",
+      "title": "KYC and Identity Verification",
+      "description": "KYC procedures must verify customer identity using government-issued IDs (NIN, BVN, passport) before account opening or high-value transactions.",
+      "evidence_requirements": ["kyc_policy", "id_verification_process", "nin_bvn_verification"],
+      "maps_to": ["NDPA-2023-Art24"]
+    },
+    {
+      "id": "CBN-CS-4.1",
+      "title": "Incident and Breach Reporting",
+      "description": "Cyber incidents must be reported to the CBN within 24 hours of detection. Institutions must maintain a cyber incident register.",
+      "evidence_requirements": ["incident_register", "cbn_reporting_evidence"],
+      "maps_to": ["NDPA-2023-Art43", "GAID-2025-Sec9"]
+    }
+  ]
+}

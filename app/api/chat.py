@@ -1,6 +1,6 @@
 """
-AI Chat endpoint — "Chat with Your Audit" powered by Google Gemini.
-Users can ask natural-language questions about their compliance posture.
+AI Chat endpoint - powered by RAG engine with regulatory clause citations.
+Routes through LLMRouter: Gemini -> Mistral -> Llama3 -> Phi3.
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -13,6 +13,8 @@ from app.db.session import get_db
 from app.models.database import User, Audit, Finding, Organization, AuditStatus
 from app.api.dependencies import get_current_user
 from app.core.config import get_settings
+from app.core.rag_engine import get_rag_engine
+from app.services.ai_monitor import get_ai_monitor
 import logging
 
 logger = logging.getLogger(__name__)
@@ -21,71 +23,63 @@ settings = get_settings()
 
 
 class ChatMessage(BaseModel):
-    role: str  # "user" | "assistant"
+    role: str
     content: str
 
 
 class ChatRequest(BaseModel):
     message: str
-    audit_id: Optional[str] = None  # scope to a specific audit, or use latest
+    audit_id: Optional[str] = None
     history: List[ChatMessage] = []
+    use_rag: bool = True
+
+
+class CitationItem(BaseModel):
+    source: str
+    page: int
+    article: str
+    text: str
 
 
 class ChatResponse(BaseModel):
     reply: str
     audit_id: Optional[str] = None
     sources: List[str] = []
+    citations: List[CitationItem] = []
+    grounded: bool = False
+    model_used: str = "gemini"
+    ai_safe: bool = True
+    risk_score: float = 0.0
 
 
-async def _build_audit_context_prompt(
-    org: Organization,
-    audits: list,
-    findings: list,
-    audit_id: Optional[str],
+async def _build_audit_context(
+    org: Organization, audits: list, findings: list, audit_id: Optional[str]
 ) -> str:
-    """Build a rich system prompt from real audit/finding data."""
-    latest_audit = None
+    latest = None
     if audit_id:
-        for a in audits:
-            if str(a.id) == audit_id:
-                latest_audit = a
-                break
-    if not latest_audit and audits:
-        latest_audit = audits[0]
+        latest = next((a for a in audits if str(a.id) == audit_id), None)
+    if not latest and audits:
+        latest = audits[0]
 
-    score = latest_audit.compliance_score if latest_audit else "Unknown"
-    total_findings = latest_audit.findings_count if latest_audit else 0
-    critical = latest_audit.critical_count if latest_audit else 0
-    high = latest_audit.high_count if latest_audit else 0
+    score   = latest.compliance_score if latest else "Unknown"
+    total   = latest.findings_count   if latest else 0
+    crit    = latest.critical_count   if latest else 0
+    high    = latest.high_count       if latest else 0
 
     finding_summaries = "\n".join(
-        f"- [{f.severity.value.upper()}] {f.title}: {f.description[:120]}..."
+        f"- [{f.severity.value.upper()}] {f.title}: {f.description[:120]}"
         for f in findings[:15]
     ) or "No findings recorded."
 
-    return f"""You are an expert AI compliance advisor for CAR-Bot, specializing in Nigerian Data Protection Act (NDPA 2023) and GAID 2025.
-
-ORGANIZATION: {org.name}
-INDUSTRY: {org.industry or 'Unknown'}
-DPO: {org.dpo_name or 'Not configured'} <{org.dpo_email or 'No email'}>
-
-LATEST AUDIT SUMMARY:
-- Compliance Score: {score}%
-- Total Findings: {total_findings}
-- Critical Issues: {critical}
-- High Issues: {high}
-- Audit Date: {latest_audit.created_at.strftime('%d %b %Y') if latest_audit else 'N/A'}
-
-TOP FINDINGS:
-{finding_summaries}
-
-INSTRUCTIONS:
-- Answer the user's compliance question using the data above
-- Be specific, cite finding titles when relevant
-- Recommend actions aligned with NDPA 2023 and GAID 2025
-- Be concise — max 3 paragraphs unless the user asks for detail
-- If you don't know something, say so rather than hallucinating
-"""
+    return (
+        f"ORGANIZATION: {org.name}\n"
+        f"INDUSTRY: {org.industry or 'Unknown'}\n"
+        f"DPO: {org.dpo_name or 'Not configured'}\n\n"
+        f"LATEST AUDIT:\n"
+        f"- Score: {score}%  |  Total: {total}  |  Critical: {crit}  |  High: {high}\n"
+        f"- Date: {latest.created_at.strftime('%d %b %Y') if latest else 'N/A'}\n\n"
+        f"TOP FINDINGS:\n{finding_summaries}"
+    )
 
 
 @router.post("/", response_model=ChatResponse)
@@ -94,71 +88,84 @@ async def chat_with_audit(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Ask Gemini AI questions about your compliance posture."""
-    if not settings.GOOGLE_API_KEY:
+    if not settings.GOOGLE_API_KEY and not settings.HUGGINGFACE_TOKEN:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="AI chat is not configured. Set GOOGLE_API_KEY in your environment.",
+            detail="No AI service configured. Set GOOGLE_API_KEY or HUGGINGFACE_TOKEN.",
         )
 
-    # Fetch org & recent audit data
-    org_result = await db.execute(
+    # Fetch org and audit data
+    org = (await db.execute(
         select(Organization).where(Organization.id == current_user.org_id)
-    )
-    org = org_result.scalar_one()
+    )).scalar_one()
 
-    audits_result = await db.execute(
+    audits = (await db.execute(
         select(Audit)
-        .where(
-            Audit.org_id == current_user.org_id,
-            Audit.status == AuditStatus.COMPLETED,
-        )
-        .order_by(Audit.created_at.desc())
-        .limit(5)
-    )
-    audits = audits_result.scalars().all()
+        .where(Audit.org_id == current_user.org_id, Audit.status == AuditStatus.COMPLETED)
+        .order_by(Audit.created_at.desc()).limit(5)
+    )).scalars().all()
 
-    # Get findings from the most relevant audit
     target_audit_id = request.audit_id or (str(audits[0].id) if audits else None)
     findings = []
     if target_audit_id:
-        findings_result = await db.execute(
+        findings = (await db.execute(
             select(Finding).where(Finding.audit_id == target_audit_id).limit(30)
-        )
-        findings = findings_result.scalars().all()
+        )).scalars().all()
 
-    system_prompt = await _build_audit_context_prompt(
-        org=org,
-        audits=audits,
-        findings=findings,
-        audit_id=target_audit_id,
+    audit_context = await _build_audit_context(org, audits, findings, target_audit_id)
+    history = [{"role": m.role, "content": m.content} for m in request.history]
+
+    # RAG: retrieve relevant regulatory clauses
+    rag = get_rag_engine()
+    try:
+        if request.use_rag and rag.is_ready:
+            rag_result = await rag.generate_grounded_response(
+                query=request.message,
+                audit_context=audit_context,
+                history=history,
+                api_key=settings.GOOGLE_API_KEY,
+            )
+            reply       = rag_result.answer
+            citations   = rag_result.citations
+            grounded    = rag_result.grounded
+            model_used  = rag_result.model_used
+        else:
+            # Fallback to direct Gemini call (no RAG)
+            from app.core.llm_router import LLMRouter
+            router_llm = LLMRouter(api_key=settings.GOOGLE_API_KEY,
+                                   hf_token=settings.HUGGINGFACE_TOKEN)
+            system_prompt = (
+                "You are an expert AI compliance advisor for CAR-Bot, "
+                "specialising in NDPA 2023 and GAID 2025.\n\n"
+                + audit_context
+            )
+            reply       = await router_llm.generate(system_prompt, request.message, history)
+            citations   = []
+            grounded    = False
+            model_used  = router_llm.last_model_used
+    except Exception as e:
+        logger.error("Chat generation failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"AI service error: {str(e)}")
+
+    # AI safety check
+    monitor = get_ai_monitor()
+    safety  = monitor.check_response(
+        query=request.message,
+        response=reply,
+        citations=[{"source": c.source, "article": c.article} for c in citations],
+        model_used=model_used,
     )
 
-    try:
-        import google.generativeai as genai
-        genai.configure(api_key=settings.GOOGLE_API_KEY)
-        model = genai.GenerativeModel("gemini-1.5-flash", system_instruction=system_prompt)
-
-        # Build conversation history
-        gemini_history = []
-        for msg in request.history[-8:]:  # keep last 8 turns for context window
-            gemini_history.append({
-                "role": msg.role,
-                "parts": [msg.content],
-            })
-
-        chat = model.start_chat(history=gemini_history)
-        response = await chat.send_message_async(request.message)
-        reply = response.text
-
-        return ChatResponse(
-            reply=reply,
-            audit_id=target_audit_id,
-            sources=[f.title for f in findings[:5]],
-        )
-    except Exception as e:
-        logger.error(f"Gemini chat error: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"AI service error: {str(e)}",
-        )
+    return ChatResponse(
+        reply=reply,
+        audit_id=target_audit_id,
+        sources=[f.title for f in findings[:5]],
+        citations=[
+            CitationItem(source=c.source, page=c.page, article=c.article, text=c.text)
+            for c in citations
+        ],
+        grounded=grounded,
+        model_used=model_used,
+        ai_safe=safety.is_safe,
+        risk_score=safety.risk_score,
+    )

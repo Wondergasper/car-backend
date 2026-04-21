@@ -1,0 +1,50 @@
+﻿{
+  "framework": "GAID 2025",
+  "version": "2025",
+  "issuing_body": "NDPC",
+  "source": "ndpc.gov.ng",
+  "controls": [
+    {
+      "id": "GAID-2025-Sec1",
+      "title": "CAR Filing Requirements",
+      "description": "The GAID specifies the format, content, and deadline for the annual Compliance Audit Return. Filing fee is based on organisation category.",
+      "evidence_requirements": ["car_pdf", "dpco_engagement_letter"],
+      "maps_to": ["NDPA-2023-Art48"]
+    },
+    {
+      "id": "GAID-2025-Sec2",
+      "title": "DPCO Obligations",
+      "description": "Data Protection Compliance Organisations must be licensed by the NDPC, maintain professional indemnity insurance, and file returns for all clients.",
+      "evidence_requirements": ["dpco_licence", "indemnity_insurance_cert"],
+      "maps_to": ["NDPA-2023-Art30"]
+    },
+    {
+      "id": "GAID-2025-Sec3",
+      "title": "Data Processing Agreements",
+      "description": "A signed Data Processing Agreement (DPA) must be in place between every data controller and their data processors before processing begins.",
+      "evidence_requirements": ["signed_dpa", "processor_list"],
+      "maps_to": ["NDPA-2023-Art24"]
+    },
+    {
+      "id": "GAID-2025-Sec5",
+      "title": "Privacy Notice Requirements",
+      "description": "Privacy notices must be clear, concise, and provided at the point of data collection. Must include lawful basis, retention period, and data subject rights.",
+      "evidence_requirements": ["published_privacy_notice", "collection_point_evidence"],
+      "maps_to": ["NDPA-2023-Art25"]
+    },
+    {
+      "id": "GAID-2025-Sec7",
+      "title": "International Transfer Safeguards",
+      "description": "Before any international transfer, organisations must conduct a Transfer Impact Assessment (TIA) and implement approved transfer mechanisms.",
+      "evidence_requirements": ["tia_report", "transfer_mechanism_docs"],
+      "maps_to": ["NDPA-2023-Art42"]
+    },
+    {
+      "id": "GAID-2025-Sec9",
+      "title": "Incident Response Requirements",
+      "description": "Organisations must maintain a documented incident response plan and test it annually. Breaches must be documented in a breach register.",
+      "evidence_requirements": ["incident_response_plan", "annual_test_record", "breach_register"],
+      "maps_to": ["NDPA-2023-Art43"]
+    }
+  ]
+}

@@ -19,7 +19,9 @@ class Settings(BaseSettings):
     OBJECT_STORAGE_BUCKET: str = "carbot-reports"
     RESEND_API_KEY: str = ""
     RESEND_FROM_EMAIL: str = "noreply@car-bot.ai"
-    # Comma-separated list of allowed CORS origins
+    # Intelligence layer
+    HUGGINGFACE_TOKEN: str = ""
+    OFFLINE_MODE: bool = False
     ALLOWED_ORIGINS: List[str] = [
         "http://localhost:3000",
         "http://localhost:3001",
@@ -34,12 +36,8 @@ class Settings(BaseSettings):
         return self.SUPABASE_DB_URL_SYNC or self.DATABASE_URL_SYNC
 
     def validate_secret_key(self):
-        """Warn loudly if the secret key is the insecure default."""
         if self.SECRET_KEY == "your-secret-key-change-in-production":
-            logger.warning(
-                "\u26a0\ufe0f  SECRET_KEY is set to the insecure default! "
-                "Set SECRET_KEY in your .env file before deploying to production."
-            )
+            logger.warning("SECRET_KEY is set to the insecure default!")
 
     class Config:
         env_file = ".env"

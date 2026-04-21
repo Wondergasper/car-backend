@@ -1,0 +1,22 @@
+﻿{
+  "framework": "NCC Consumer Code of Practice",
+  "version": "2022",
+  "issuing_body": "NCC",
+  "source": "ncc.gov.ng",
+  "controls": [
+    {
+      "id": "NCC-CP-1.1",
+      "title": "Subscriber Data Protection",
+      "description": "Telecom operators must protect subscriber data including call records, location data, and MSISDN. Data may not be shared with third parties without explicit consent.",
+      "evidence_requirements": ["subscriber_data_policy", "consent_mechanism"],
+      "maps_to": ["NDPA-2023-Art24"]
+    },
+    {
+      "id": "NCC-CP-2.1",
+      "title": "Service Transparency",
+      "description": "Subscribers must be informed about data collection practices, service terms, and pricing before subscription. Material changes require 30-day notice.",
+      "evidence_requirements": ["terms_of_service", "change_notification_records"],
+      "maps_to": ["GAID-2025-Sec5"]
+    }
+  ]
+}

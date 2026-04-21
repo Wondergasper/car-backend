@@ -1,0 +1,50 @@
+﻿{
+  "framework": "NDPA 2023",
+  "version": "2023",
+  "issuing_body": "NDPC",
+  "source": "ndpc.gov.ng",
+  "controls": [
+    {
+      "id": "NDPA-2023-Art24",
+      "title": "Lawful Basis for Processing",
+      "description": "Personal data must only be processed under one of the six lawful bases: consent, contract, legal obligation, vital interests, public task, or legitimate interests.",
+      "evidence_requirements": ["privacy_policy", "consent_records", "lawful_basis_register"],
+      "maps_to": ["GAID-2025-Sec3", "CBN-CS-2.1"]
+    },
+    {
+      "id": "NDPA-2023-Art25",
+      "title": "Data Subject Rights",
+      "description": "Data subjects have the right to access, rectify, erase, restrict, and port their personal data. Requests must be fulfilled within 30 days.",
+      "evidence_requirements": ["dsr_policy", "dsr_log", "response_sla_evidence"],
+      "maps_to": ["GAID-2025-Sec5"]
+    },
+    {
+      "id": "NDPA-2023-Art30",
+      "title": "DPO Appointment",
+      "description": "Organisations processing personal data at scale must appoint a Data Protection Officer (DPO). The DPO must be registered with the NDPC.",
+      "evidence_requirements": ["dpo_appointment_letter", "ndpc_registration_cert"],
+      "maps_to": ["GAID-2025-Sec2"]
+    },
+    {
+      "id": "NDPA-2023-Art42",
+      "title": "Cross-Border Data Transfers",
+      "description": "Personal data may only be transferred to a foreign country that provides adequate data protection, or under approved safeguards (SCCs, BCRs, consent).",
+      "evidence_requirements": ["transfer_impact_assessment", "adequacy_decision", "sccs"],
+      "maps_to": ["GAID-2025-Sec7"]
+    },
+    {
+      "id": "NDPA-2023-Art43",
+      "title": "Data Breach Notification",
+      "description": "Breaches likely to result in risk to data subjects must be reported to the NDPC within 72 hours of discovery. Affected data subjects must also be notified.",
+      "evidence_requirements": ["breach_register", "notification_template", "incident_response_plan"],
+      "maps_to": ["GAID-2025-Sec9", "CBN-CS-4.1"]
+    },
+    {
+      "id": "NDPA-2023-Art48",
+      "title": "Compliance Audit Return (CAR)",
+      "description": "All data controllers and processors must submit an annual Compliance Audit Return (CAR) to the NDPC by May 30 each year.",
+      "evidence_requirements": ["completed_car_pdf", "dpco_signature", "submission_receipt"],
+      "maps_to": ["GAID-2025-Sec1"]
+    }
+  ]
+}

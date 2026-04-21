@@ -9,6 +9,8 @@ from app.api.users import router as users_router
 from app.api.chat import router as chat_router
 from app.api.notifications import router as notifications_router
 from app.api.scheduled_audits import router as scheduled_audits_router
+from app.api.rag import router as rag_router
+from app.api.frameworks import router as frameworks_router
 
 router = APIRouter()
 
@@ -20,9 +22,12 @@ router.include_router(rules_router, prefix="/rules", tags=["Compliance Rules"])
 router.include_router(webhooks_router, prefix="/webhooks", tags=["Webhooks"])
 router.include_router(api_keys_router, prefix="/api-keys", tags=["API Keys"])
 
-# New feature routes
+# Feature routes
 router.include_router(users_router, prefix="/users", tags=["Team Management"])
 router.include_router(chat_router, prefix="/chat", tags=["AI Chat"])
 router.include_router(notifications_router, prefix="/notifications", tags=["Notifications"])
 router.include_router(scheduled_audits_router, prefix="/scheduled-audits", tags=["Scheduled Audits"])
 
+# Intelligence layer routes
+router.include_router(rag_router, prefix="/rag", tags=["RAG - Clause Search"])
+router.include_router(frameworks_router, prefix="/frameworks", tags=["Compliance Frameworks"])
