@@ -5,6 +5,7 @@ from app.api.router import router as api_router
 from app.core.config import get_settings
 from app.middleware import OrganizationMiddleware
 from app.db.session import engine, Base, async_session
+from app.db.schema_compat import ensure_connector_webhook_secret_column
 from app.db.seeder import seed_database
 import logging
 
@@ -18,6 +19,7 @@ async def init_db():
     async with engine.begin() as conn:
         # Create tables (safe - won't recreate existing ones)
         await conn.run_sync(Base.metadata.create_all)
+        await ensure_connector_webhook_secret_column(conn)
         logger.info("Database tables created.")
 
     # Seed baseline data

@@ -1,6 +1,7 @@
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import async_session
+from app.db.schema_compat import ensure_connector_webhook_secret_column
 from app.models.database import ComplianceRule
 from app.core.rules_engine import COMPLIANCE_RULES
 
@@ -31,6 +32,7 @@ async def init_database():
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await ensure_connector_webhook_secret_column(conn)
 
     print("Database initialized.")
     await seed_rules()

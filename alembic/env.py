@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from alembic import context
 from app.core.config import get_settings
 from app.db.session import Base
-from app.models.database import User, Connector, WebhookEvent, Audit, Finding, ComplianceRule
+import app.models.database  # noqa: F401
 
 config = context.config
 
