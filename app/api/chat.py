@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from datetime import datetime
 
 from app.db.session import get_db
-from app.models.database import User, Audit, Finding, Organization, AuditStatus
+from app.models.database import User, Audit, Document, Finding, Organization, AuditStatus
 from app.api.dependencies import get_current_user
 from app.core.config import get_settings
 from app.core.rag_engine import get_rag_engine
@@ -53,7 +53,7 @@ class ChatResponse(BaseModel):
 
 
 async def _build_audit_context(
-    org: Organization, audits: list, findings: list, audit_id: Optional[str]
+    org: Organization, audits: list, findings: list, recent_documents: list, audit_id: Optional[str]
 ) -> str:
     latest = None
     if audit_id:
@@ -71,6 +71,16 @@ async def _build_audit_context(
         for f in findings[:15]
     ) or "No findings recorded."
 
+    document_summaries = []
+    for document in recent_documents[:5]:
+        analysis = (document.content or {}).get("analysis", {}) if isinstance(document.content, dict) else {}
+        summary = analysis.get("summary", {})
+        headline = summary.get("headline", "No instant analysis yet.")
+        total = summary.get("total_findings", 0)
+        document_summaries.append(f"- {document.title}: {headline} ({total} findings)")
+
+    documents_block = "\n".join(document_summaries) or "No analyzed documents recorded."
+
     return (
         f"ORGANIZATION: {org.name}\n"
         f"INDUSTRY: {org.industry or 'Unknown'}\n"
@@ -79,6 +89,7 @@ async def _build_audit_context(
         f"- Score: {score}%  |  Total: {total}  |  Critical: {crit}  |  High: {high}\n"
         f"- Date: {latest.created_at.strftime('%d %b %Y') if latest else 'N/A'}\n\n"
         f"TOP FINDINGS:\n{finding_summaries}"
+        f"\n\nRECENT DOCUMENT ANALYSIS:\n{documents_block}"
     )
 
 
@@ -112,7 +123,16 @@ async def chat_with_audit(
             select(Finding).where(Finding.audit_id == target_audit_id).limit(30)
         )).scalars().all()
 
-    audit_context = await _build_audit_context(org, audits, findings, target_audit_id)
+    recent_documents = (
+        await db.execute(
+            select(Document)
+            .where(Document.org_id == current_user.org_id)
+            .order_by(Document.created_at.desc())
+            .limit(5)
+        )
+    ).scalars().all()
+
+    audit_context = await _build_audit_context(org, audits, findings, recent_documents, target_audit_id)
     history = [{"role": m.role, "content": m.content} for m in request.history]
 
     # RAG: retrieve relevant regulatory clauses

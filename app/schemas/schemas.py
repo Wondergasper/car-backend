@@ -222,15 +222,30 @@ class DocumentUpdate(BaseModel):
     status: Optional[str] = Field(None, max_length=50)
 
 
+class DocumentAnalysisSummary(BaseModel):
+    headline: str
+    document_preview: Optional[str] = None
+    total_findings: int = 0
+    by_category: Dict[str, int] = {}
+    by_risk_level: Dict[str, int] = {}
+    high_risk_locations: List[str] = []
+    top_findings: List[Dict[str, Any]] = []
+    recommendations: List[str] = []
+
+
 class DocumentResponse(BaseModel):
     id: UUID
     org_id: UUID
+    audit_id: Optional[UUID] = None
     document_type: DocumentType
     title: str
     description: Optional[str] = None
     status: str
     version: int
     storage_url: Optional[str]
+    analysis_status: Optional[str] = None
+    analysis_mode: Optional[str] = None
+    latest_analysis: Optional[DocumentAnalysisSummary] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
 
