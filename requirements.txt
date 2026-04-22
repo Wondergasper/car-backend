@@ -5,7 +5,7 @@ alembic>=1.13.0
 asyncpg>=0.29.0
 psycopg[binary]>=3.2.0
 python-jose[cryptography]>=3.3.0
-passlib[bcrypt]>=1.7.4
+bcrypt
 python-multipart
 pydantic[email]
 pydantic-settings
@@ -13,7 +13,7 @@ httpx
 reportlab
 cryptography
 requests
-google-generativeai
+google-genai
 google-api-core
 protobuf
 apscheduler
@@ -23,6 +23,7 @@ resend
 sentence-transformers
 chromadb
 pypdf
+pdfplumber
 
 # Intelligence Layer - LLMs (HuggingFace)
 huggingface-hub

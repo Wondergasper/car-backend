@@ -12,7 +12,6 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.router import router as api_router
-from app.api.badge import router as badge_router
 from app.core.config import get_settings
 from app.middleware import OrganizationMiddleware
 from app.db.session import engine, Base, async_session
@@ -175,6 +174,10 @@ You can integrate it directly into your own dashboards, CI/CD pipelines, or inte
             "name": "Compliance Frameworks",
             "description": "Browse supported compliance frameworks and cross-walk mappings between them.",
         },
+        {
+            "name": "Documents",
+            "description": "Upload and manage organisation documents (policies, evidence files) stored securely.",
+        },
     ]
 
     app = FastAPI(
@@ -222,7 +225,6 @@ You can integrate it directly into your own dashboards, CI/CD pipelines, or inte
     app.mount("/media", StaticFiles(directory="media"), name="media")
 
     app.include_router(api_router, prefix="/api")
-    app.include_router(badge_router)
 
     # ── Inject Bearer JWT security scheme into OpenAPI spec ─────────────────
     # This makes the "Authorize 🔒" button appear in Swagger UI and shows
@@ -242,6 +244,18 @@ You can integrate it directly into your own dashboards, CI/CD pipelines, or inte
             servers=app.servers,
             routes=app.routes,
         )
+        # Public endpoints: do not imply Bearer auth in OpenAPI (Swagger UI).
+        for path_key, path_item in schema.get("paths", {}).items():
+            is_public = (
+                path_key == "/health"
+                or path_key in ("/api/auth/register", "/api/auth/login")
+                or path_key.startswith("/api/badge")
+            )
+            if is_public:
+                for op in path_item.values():
+                    if isinstance(op, dict):
+                        op["security"] = []
+
         schema.setdefault("components", {})
         schema["components"]["securitySchemes"] = {
             "BearerAuth": {

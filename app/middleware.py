@@ -28,7 +28,8 @@ class OrganizationMiddleware(BaseHTTPMiddleware):
         )
         # WebSocket upgrade for audit progress (token passed as query param)
         is_ws = request.headers.get("upgrade", "").lower() == "websocket"
-        if is_public or is_ws:
+        # Skip auth for public endpoints or CORS preflight requests
+        if request.method == "OPTIONS" or is_public or is_ws:
             return await call_next(request)
         
         # Extract and verify token
@@ -81,7 +82,8 @@ async def get_db_with_org(org_id: str):
         try:
             # Set the org_id for RLS
             await session.execute(
-                text(f"SET LOCAL app.current_org_id = '{org_id}'")
+                text("SELECT set_config('app.current_org_id', :org_id, true)"),
+                {"org_id": str(org_id)},
             )
             yield session
         finally:

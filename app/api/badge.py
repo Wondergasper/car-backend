@@ -54,14 +54,14 @@ def _build_svg(org_name: str, score: int, color: str) -> str:
 </svg>"""
 
 
-@router.get("/badge/{org_slug}", response_class=Response)
+@router.get("/{org_slug}", response_class=Response)
 async def get_compliance_badge(
     org_slug: str,
     db: AsyncSession = Depends(get_db),
 ):
     """
     Returns an embeddable SVG compliance badge.
-    Embed with: <img src="https://your-host/badge/{org-slug}" />
+    Mounted under /api/badge → use: <img src="https://your-host/api/badge/{org-slug}" />
     """
     org_result = await db.execute(
         select(Organization).where(Organization.slug == org_slug)

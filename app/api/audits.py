@@ -16,6 +16,8 @@ from app.schemas.schemas import AuditGenerate, AuditResponse, FindingResponse
 from app.api.dependencies import get_current_user
 from app.services.audit_processor import run_audit
 import asyncio
+import hashlib
+import json
 import logging
 
 logger = logging.getLogger(__name__)
@@ -42,6 +44,15 @@ async def list_audits(
     )
     audits = result.scalars().all()
     return audits
+
+
+@router.get("/generate", include_in_schema=True)
+async def generate_audit_wrong_method():
+    """Avoid mistaking GET /audits/generate for an audit id."""
+    raise HTTPException(
+        status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
+        detail="Use POST /api/audits/generate with a JSON body to start an audit.",
+    )
 
 
 @router.get("/{audit_id}", response_model=AuditResponse)
@@ -469,3 +480,57 @@ async def generate_remediation_plans(
 
     plans = await fix_service.generate_all_fixes(compliance_findings, org_context)
     return plans
+
+
+from fastapi import UploadFile, File
+import io
+import pdfplumber
+
+@router.post("/upload-data", status_code=status.HTTP_200_OK)
+async def upload_analysis_data(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Accepts manual file uploads (PDF, JSON) to be used as data sources
+    for analysis. Bridging the gap for Hackathon demos.
+    """
+    try:
+        content = await file.read()
+        payload_dict = {}
+
+        if file.filename.endswith(".json"):
+            payload_dict = json.loads(content)
+        elif file.filename.endswith(".pdf"):
+            with pdfplumber.open(io.BytesIO(content)) as pdf:
+                extracted_text = "\n".join([page.extract_text() or "" for page in pdf.pages])
+                payload_dict = {"unstructured_text": extracted_text}
+        else:
+            # Fallback for csv, txt etc.
+            payload_dict = {"raw_content": content.decode("utf-8", errors="ignore")}
+
+        # Create a ConnectorEvent representing this manual upload
+        from app.models.database import ConnectorEvent
+
+        payload_json = json.dumps(payload_dict, default=str)
+        payload_hash = hashlib.sha256(content).hexdigest()
+        new_event = ConnectorEvent(
+            org_id=current_user.org_id,
+            connector_id=None,
+            event_type="manual_file_upload",
+            payload_hash=payload_hash,
+            payload_size=len(content),
+            payload_sample=payload_json,
+            processed=False,
+        )
+        db.add(new_event)
+        await db.commit()
+
+        return {
+            "status": "success", 
+            "message": f"Successfully parsed {file.filename} for analysis. You can now run an audit."
+        }
+    except Exception as e:
+        logger.error(f"File upload failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"File processing failed: {str(e)}")

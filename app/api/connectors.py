@@ -31,6 +31,16 @@ def _decrypt_config(ciphertext: bytes) -> dict:
     return json.loads(config_json)
 
 
+@router.get("/types")
+async def list_connector_types(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List all available connector types and their configuration schemas."""
+    result = await db.execute(select(ConnectorType).where(ConnectorType.is_active == True))
+    return result.scalars().all()
+
+
 @router.get("/", response_model=List[ConnectorResponse])
 async def list_connectors(
     request: Request,
