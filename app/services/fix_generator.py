@@ -10,7 +10,8 @@ from dataclasses import dataclass
 from datetime import datetime
 import json
 
-import google.generativeai as genai
+from google import genai as google_genai
+from google.genai import types as genai_types
 from app.core.config import get_settings
 from app.core.rules_engine import ComplianceFinding
 
@@ -782,10 +783,13 @@ class FixGenerationService:
     def _setup_gemini(self):
         """Initialize Gemini client if API key is available."""
         self.use_gemini = False
+        self._gemini_client = None
         if settings.GOOGLE_API_KEY and settings.GOOGLE_API_KEY != "your_gemini_api_key_here":
             try:
-                genai.configure(api_key=settings.GOOGLE_API_KEY)
-                self.model = genai.GenerativeModel("gemini-1.5-flash")
+                self._gemini_client = google_genai.Client(
+                    api_key=settings.GOOGLE_API_KEY,
+                    http_options={"api_version": "v1"},
+                )
                 self.use_gemini = True
             except Exception as e:
                 print(f"Failed to initialize Gemini: {e}")
@@ -834,19 +838,19 @@ class FixGenerationService:
     async def _generate_gemini_fix(self, finding: ComplianceFinding, org_context: Dict[str, Any] = None) -> RemediationDocument:
         """Use Google Gemini to generate a professional remediation document."""
         org_name = (org_context or {}).get("company_name", "the Organization")
-        
+
         prompt = f"""
         You are an expert Data Protection Officer and Compliance Consultant specializing in the Nigeria Data Protection Act 2023 (NDPA 2023).
-        
+
         Generate a professional remediation document for the following compliance finding:
-        
+
         ORGANIZATION: {org_name}
         FINDING TITLE: {finding.title}
         FINDING DESCRIPTION: {finding.description}
         RULE VIOLATED: {finding.rule_id}
         SEVERITY: {finding.severity}
         EVIDENCE: {json.dumps(finding.evidence, indent=2, default=str)}
-        
+
         Return a JSON object with the following fields:
         1. document_title: A professional title for the plan.
         2. remediation_type: One of "Policy", "Technical", "Procedure", or "Assessment".
@@ -854,16 +858,18 @@ class FixGenerationService:
         4. implementation_steps: A list of 5-10 actionable steps to fix the issue.
         5. estimated_effort: One of "quick", "moderate", "extensive".
         """
-        
+
         try:
-            response = await self.model.generate_content_async(
-                prompt,
-                generation_config=genai.types.GenerationConfig(
-                    response_mime_type="application/json",
-                )
+            config = genai_types.GenerateContentConfig(
+                response_mime_type="application/json",
+            )
+            response = await self._gemini_client.aio.models.generate_content(
+                model="gemini-1.5-flash",
+                contents=prompt,
+                config=config,
             )
             data = json.loads(response.text)
-            
+
             return RemediationDocument(
                 finding_rule_id=finding.rule_id,
                 finding_title=finding.title,
@@ -879,7 +885,6 @@ class FixGenerationService:
             )
         except Exception as e:
             print(f"Gemini generation failed, falling back to templates: {e}")
-            # Manual fallback to templates if Gemini fails
             return self.generate_fix_sync(finding, org_context)
 
     def generate_fix_sync(self, finding: ComplianceFinding, org_context: Dict[str, Any] = None) -> RemediationDocument:

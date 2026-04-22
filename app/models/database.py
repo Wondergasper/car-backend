@@ -157,6 +157,26 @@ class Organization(Base):
         Index("idx_org_slug", "slug"),
     )
 
+    @property
+    def rc_number(self):
+        return (self.settings or {}).get("rc_number")
+
+    @property
+    def registration_role(self):
+        return (self.settings or {}).get("registration_role")
+
+    @property
+    def verification_status(self):
+        return (self.settings or {}).get("verification_status")
+
+    @property
+    def verification_provider(self):
+        return (self.settings or {}).get("verification_provider")
+
+    @property
+    def verification_entity_name(self):
+        return (self.settings or {}).get("verification_entity_name")
+
 
 class APIKey(Base):
     """
@@ -242,7 +262,8 @@ class ConnectorEvent(Base):
     __tablename__ = "connector_events"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    connector_id = Column(UUID(as_uuid=True), ForeignKey("connectors.id"), nullable=False, index=True)
+    # Nullable for org-level manual uploads (see POST /api/audits/upload-data).
+    connector_id = Column(UUID(as_uuid=True), ForeignKey("connectors.id"), nullable=True, index=True)
     org_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id"), nullable=False, index=True)
     
     # Event data

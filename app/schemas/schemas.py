@@ -2,7 +2,7 @@
 Pydantic schemas for API validation - upgraded for multi-tenant architecture.
 """
 from pydantic import BaseModel, EmailStr, Field
-from typing import Optional
+from typing import Optional, Dict, Any
 from datetime import datetime
 from uuid import UUID
 from app.models.database import UserRole, ConnectorStatus, AuditStatus, AuditType, FindingSeverity, FindingStatus, SubscriptionTier, DocumentType
@@ -13,6 +13,8 @@ class UserCreate(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=100)
     company_name: str = Field(min_length=2, max_length=255)
+    rc_number: str = Field(min_length=4, max_length=100)
+    registration_role: str = Field(min_length=3, max_length=100)
     industry: Optional[str] = Field(default=None, max_length=100)
     size: Optional[int] = Field(default=None)
 
@@ -53,13 +55,19 @@ class OrganizationUpdate(BaseModel):
     name: Optional[str] = None
     industry: Optional[str] = None
     size: Optional[int] = None
+    website: Optional[str] = None
+    rc_number: Optional[str] = None
+    registration_role: Optional[str] = None
     dpo_name: Optional[str] = None
     dpo_email: Optional[str] = None
+    dpo_phone: Optional[str] = None
     address_line1: Optional[str] = None
     address_line2: Optional[str] = None
     city: Optional[str] = None
     state: Optional[str] = None
     country: Optional[str] = None
+    # Shallow-merged into existing org.settings (e.g. onboarding_frameworks)
+    settings: Optional[Dict[str, Any]] = None
 
 
 class OrganizationResponse(BaseModel):
@@ -68,8 +76,15 @@ class OrganizationResponse(BaseModel):
     slug: str
     industry: Optional[str]
     size: Optional[int]
-    dpo_name: Optional[str]
-    dpo_email: Optional[str]
+    website: Optional[str] = None
+    rc_number: Optional[str] = None
+    registration_role: Optional[str] = None
+    dpo_name: Optional[str] = None
+    dpo_email: Optional[str] = None
+    dpo_phone: Optional[str] = None
+    verification_status: Optional[str] = None
+    verification_provider: Optional[str] = None
+    verification_entity_name: Optional[str] = None
     subscription_tier: SubscriptionTier
     max_connectors: int
     max_users: int
@@ -193,16 +208,23 @@ class DocumentCreate(BaseModel):
     audit_id: Optional[UUID] = None
 
 
+class DocumentUpdate(BaseModel):
+    title: Optional[str] = Field(None, min_length=2, max_length=255)
+    description: Optional[str] = None
+    status: Optional[str] = Field(None, max_length=50)
+
+
 class DocumentResponse(BaseModel):
     id: UUID
     org_id: UUID
     document_type: DocumentType
     title: str
+    description: Optional[str] = None
     status: str
     version: int
     storage_url: Optional[str]
     created_at: datetime
-    updated_at: datetime
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

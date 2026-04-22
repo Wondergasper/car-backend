@@ -57,13 +57,13 @@ class AuditProcessor:
             audit.progress = 10.0
             await self._update_audit(audit)
 
-            # Step 2: Collect unprocessed events from those connectors
-            events = await self._collect_events(connector_ids)
+            # Step 2: Collect unprocessed events for this org (scoped connectors or all)
+            events = await self._collect_events(audit.org_id, connector_ids)
             audit.progress = 20.0
             await self._update_audit(audit)
 
             # Step 3: Build AuditContext from events + connector metadata
-            context = await self._build_context(events, connector_ids)
+            context = await self._build_context(audit.org_id, events, connector_ids)
             audit.progress = 40.0
             await self._update_audit(audit)
 
@@ -117,9 +117,12 @@ class AuditProcessor:
         # This is resolved at runtime via DB query
         return []
 
-    async def _collect_events(self, connector_ids: List[str]) -> List[ConnectorEvent]:
-        """Collect all unprocessed events from the specified connectors."""
+    async def _collect_events(
+        self, org_id, connector_ids: List[str]
+    ) -> List[ConnectorEvent]:
+        """Collect unprocessed events for the organisation (optionally limited to connectors)."""
         query = select(ConnectorEvent).where(
+            ConnectorEvent.org_id == org_id,
             ConnectorEvent.processed == False,
             ConnectorEvent.retry_count < ConnectorEvent.max_retries,
         )
@@ -129,27 +132,36 @@ class AuditProcessor:
         result = await self.db.execute(query.order_by(ConnectorEvent.created_at.asc()))
         return list(result.scalars().all())
 
-    async def _build_context(self, events: List[ConnectorEvent], connector_ids: List[str]) -> AuditContext:
+    async def _build_context(
+        self, org_id, events: List[ConnectorEvent], connector_ids: List[str]
+    ) -> AuditContext:
         """
         Build an AuditContext from connector events and connector metadata.
         This is where raw events become structured audit input.
         """
         context = AuditContext()
 
-        # Get connector metadata
+        # Get connector metadata (explicit scope, or all org connectors)
         if connector_ids:
             result = await self.db.execute(
                 select(Connector).where(Connector.id.in_(connector_ids))
             )
-            connectors = result.scalars().all()
-            for c in connectors:
-                context.connectors.append({
-                    "id": str(c.id),
-                    "name": c.name,
-                    "type_id": str(c.connector_type_id),
-                    "status": c.status.value if hasattr(c.status, 'value') else str(c.status),
-                    "sync_enabled": c.sync_enabled,
-                })
+        else:
+            result = await self.db.execute(
+                select(Connector).where(
+                    Connector.org_id == org_id,
+                    Connector.deleted_at.is_(None),
+                )
+            )
+        connectors = result.scalars().all()
+        for c in connectors:
+            context.connectors.append({
+                "id": str(c.id),
+                "name": c.name,
+                "type_id": str(c.connector_type_id),
+                "status": c.status.value if hasattr(c.status, "value") else str(c.status),
+                "sync_enabled": c.sync_enabled,
+            })
 
         # Process each event: scan payload for PII, extract metadata
         pii_findings = []
@@ -158,20 +170,24 @@ class AuditProcessor:
                 try:
                     payload = json.loads(event.payload_sample)
                     # Scan for PII
-                    event_pii = self.pii_scanner.scan_dict(
-                        payload,
-                        location=f"connector/{event.connector_id}/event/{event.event_type}"
+                    loc = (
+                        f"connector/{event.connector_id}/event/{event.event_type}"
+                        if event.connector_id
+                        else f"org/{event.org_id}/event/{event.event_type}"
                     )
+                    event_pii = self.pii_scanner.scan_dict(payload, location=loc)
                     pii_findings.extend(event_pii)
 
                     # Extract security posture from payload
                     self._extract_security_context(context, payload)
                 except json.JSONDecodeError:
                     # Try scanning as raw text
-                    text_pii = self.pii_scanner.scan_text(
-                        event.payload_sample,
-                        location=f"connector/{event.connector_id}/text"
+                    tloc = (
+                        f"connector/{event.connector_id}/text"
+                        if event.connector_id
+                        else f"org/{event.org_id}/manual-upload/text"
                     )
+                    text_pii = self.pii_scanner.scan_text(event.payload_sample, location=tloc)
                     pii_findings.extend(text_pii)
 
         context.pii_inventory = pii_findings

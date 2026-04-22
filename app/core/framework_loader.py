@@ -31,7 +31,7 @@ class FrameworkLoader:
             logger.warning("Framework file not found: %s", path)
             return None
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
             self._cache[framework_id] = data
             return data
         except Exception as e:

@@ -11,16 +11,21 @@ from app.api.notifications import router as notifications_router
 from app.api.scheduled_audits import router as scheduled_audits_router
 from app.api.rag import router as rag_router
 from app.api.frameworks import router as frameworks_router
+from app.api.badge import router as badge_router
+from app.api.dashboard import router as dashboard_router
+from app.api.documents import router as documents_router
 
 router = APIRouter()
 
 # Core routes
 router.include_router(auth_router, prefix="/auth", tags=["Authentication"])
+router.include_router(dashboard_router, prefix="/dashboard", tags=["Dashboard"])
 router.include_router(connectors_router, prefix="/connectors", tags=["Connectors"])
 router.include_router(audits_router, prefix="/audits", tags=["Audits"])
 router.include_router(rules_router, prefix="/rules", tags=["Compliance Rules"])
 router.include_router(webhooks_router, prefix="/webhooks", tags=["Webhooks"])
 router.include_router(api_keys_router, prefix="/api-keys", tags=["API Keys"])
+router.include_router(documents_router, prefix="/documents", tags=["Documents"])
 
 # Feature routes
 router.include_router(users_router, prefix="/users", tags=["Team Management"])
@@ -31,3 +36,5 @@ router.include_router(scheduled_audits_router, prefix="/scheduled-audits", tags=
 # Intelligence layer routes
 router.include_router(rag_router, prefix="/rag", tags=["RAG - Clause Search"])
 router.include_router(frameworks_router, prefix="/frameworks", tags=["Compliance Frameworks"])
+router.include_router(badge_router, prefix="/badge", tags=["Public Badges"])
+

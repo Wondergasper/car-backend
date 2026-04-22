@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     GOOGLE_API_KEY: str = ""
+    GLEIF_API_BASE_URL: str = ""
+    GLEIF_TIMEOUT_SECONDS: int = 5
     OBJECT_STORAGE_BUCKET: str = "carbot-reports"
     RESEND_API_KEY: str = ""
     RESEND_FROM_EMAIL: str = "noreply@car-bot.ai"
