@@ -319,3 +319,7 @@ def get_rag_engine() -> RAGEngine:
     if _rag_engine is None:
         _rag_engine = RAGEngine()
     return _rag_engine
+
+
+def get_rag_engine_if_loaded() -> Optional[RAGEngine]:
+    return _rag_engine

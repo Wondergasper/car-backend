@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     # Intelligence layer
     HUGGINGFACE_TOKEN: str = ""
     OFFLINE_MODE: bool = False
+    RAG_INIT_ON_STARTUP: bool = False
+    RAG_INDEX_ON_STARTUP: bool = False
     ALLOWED_ORIGINS: List[str] = [
         "http://localhost:3000",
         "http://localhost:3001",

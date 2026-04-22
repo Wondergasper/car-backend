@@ -38,15 +38,21 @@ async def init_db():
 
 
 async def init_rag():
-    """Index regulatory PDFs into ChromaDB on startup (non-blocking)."""
+    """Optionally initialize and index the RAG engine on startup."""
     try:
+        if not settings.RAG_INIT_ON_STARTUP:
+            logger.info("RAG startup initialization disabled.")
+            return
+
         from app.core.rag_engine import get_rag_engine
         rag = get_rag_engine()
-        if rag.is_ready:
+        if rag.is_ready and settings.RAG_INDEX_ON_STARTUP:
             import asyncio
             loop = asyncio.get_event_loop()
             count = await loop.run_in_executor(None, rag.index_documents)
             logger.info("RAG engine: %d document chunks indexed.", count)
+        elif rag.is_ready:
+            logger.info("RAG engine initialized without startup indexing.")
         else:
             logger.warning("RAG engine not available - install sentence-transformers chromadb pypdf")
     except Exception as e:
@@ -293,13 +299,13 @@ You can integrate it directly into your own dashboards, CI/CD pipelines, or inte
 
     @app.get("/health")
     async def health_check():
-        from app.core.rag_engine import get_rag_engine
-        rag = get_rag_engine()
+        from app.core.rag_engine import get_rag_engine_if_loaded
+        rag = get_rag_engine_if_loaded()
         return {
             "status": "healthy",
             "version": "2.0.0",
-            "rag_ready": rag.is_ready,
-            "rag_chunks": rag.document_count,
+            "rag_ready": rag.is_ready if rag else False,
+            "rag_chunks": rag.document_count if rag else 0,
         }
 
     @app.exception_handler(Exception)
