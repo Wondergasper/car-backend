@@ -27,6 +27,14 @@ class PIIInventoryBuilder:
         self.org_id = org_id
         self.scanner = PIIScanner()
 
+    def _source_key(self, event: ConnectorEvent) -> str:
+        return str(event.connector_id) if event.connector_id else "manual_upload"
+
+    def _location(self, event: ConnectorEvent, suffix: str) -> str:
+        if event.connector_id:
+            return f"connector/{event.connector_id}/{suffix}"
+        return f"org/{event.org_id}/manual-upload/{suffix}"
+
     async def build_inventory(self) -> Dict[str, Any]:
         """
         Build the complete PII inventory for an organization.
@@ -51,7 +59,7 @@ class PIIInventoryBuilder:
             if not event.payload_sample:
                 continue
 
-            source_key = str(event.connector_id)
+            source_key = self._source_key(event)
 
             # Scan payload for PII
             try:
@@ -59,12 +67,12 @@ class PIIInventoryBuilder:
                 payload = json.loads(event.payload_sample)
                 event_findings = self.scanner.scan_dict(
                     payload,
-                    location=f"connector/{event.connector_id}/{event.event_type}"
+                    location=self._location(event, event.event_type)
                 )
             except json.JSONDecodeError:
                 event_findings = self.scanner.scan_text(
                     event.payload_sample,
-                    location=f"connector/{event.connector_id}/raw"
+                    location=self._location(event, "raw")
                 )
 
             if not event_findings:
@@ -108,7 +116,7 @@ class PIIInventoryBuilder:
             })
 
         # Build connector name map
-        connector_ids = [UUID(k) for k in by_source.keys()]
+        connector_ids = [UUID(k) for k in by_source.keys() if k != "manual_upload"]
         if connector_ids:
             conn_result = await self.db.execute(
                 select(Connector).where(Connector.id.in_(connector_ids))
@@ -119,7 +127,9 @@ class PIIInventoryBuilder:
 
         # Enrich by_source with connector names
         for key, source in by_source.items():
-            source["connector_name"] = connectors.get(key, "Unknown")
+            source["connector_name"] = (
+                "Manual upload" if key == "manual_upload" else connectors.get(key, "Unknown")
+            )
 
         summary = self.scanner.get_summary(all_findings)
 
@@ -163,12 +173,12 @@ class PIIInventoryBuilder:
                 payload = json.loads(event.payload_sample)
                 event_findings = self.scanner.scan_dict(
                     payload,
-                    location=f"connector/{event.connector_id}/{event.event_type}"
+                    location=self._location(event, event.event_type)
                 )
             except json.JSONDecodeError:
                 event_findings = self.scanner.scan_text(
                     event.payload_sample,
-                    location=f"connector/{event.connector_id}/raw"
+                    location=self._location(event, "raw")
                 )
             all_findings.extend(event_findings)
 

@@ -2,6 +2,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy import event, text
 from app.core.config import get_settings
+from app.db.schema_compat import ensure_connector_events_connector_id_nullable
 import logging
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,7 @@ async def init_db():
     async with engine.begin() as conn:
         # Create tables
         await conn.run_sync(Base.metadata.create_all)
+        await ensure_connector_events_connector_id_nullable(conn)
         logger.info("Database tables created successfully")
         
         # Enable Row-Level Security

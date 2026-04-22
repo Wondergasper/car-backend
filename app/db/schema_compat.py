@@ -24,3 +24,28 @@ async def ensure_connector_webhook_secret_column(conn: AsyncConnection) -> None:
         await conn.execute(
             text("ALTER TABLE connectors ADD COLUMN webhook_secret VARCHAR(255)")
         )
+
+
+async def ensure_connector_events_connector_id_nullable(conn: AsyncConnection) -> None:
+    """Relax connector_events.connector_id for org-level manual uploads.
+
+    Older deployed databases may still have a NOT NULL constraint on
+    connector_events.connector_id even though the application now stores
+    org-scoped `manual_file_upload` events without a connector.
+    """
+
+    def _connector_id_is_not_nullable(sync_conn) -> bool:
+        inspector = inspect(sync_conn)
+        if "connector_events" not in inspector.get_table_names():
+            return False
+
+        for column in inspector.get_columns("connector_events"):
+            if column["name"] == "connector_id":
+                return not column.get("nullable", True)
+
+        return False
+
+    if await conn.run_sync(_connector_id_is_not_nullable):
+        await conn.execute(
+            text("ALTER TABLE connector_events ALTER COLUMN connector_id DROP NOT NULL")
+        )

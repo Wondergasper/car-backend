@@ -15,7 +15,10 @@ from app.api.router import router as api_router
 from app.core.config import get_settings
 from app.middleware import OrganizationMiddleware
 from app.db.session import engine, Base, async_session
-from app.db.schema_compat import ensure_connector_webhook_secret_column
+from app.db.schema_compat import (
+    ensure_connector_events_connector_id_nullable,
+    ensure_connector_webhook_secret_column,
+)
 from app.db.seeder import seed_database
 from app.services.scheduler_service import start_scheduler, stop_scheduler
 import logging
@@ -29,6 +32,7 @@ async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await ensure_connector_webhook_secret_column(conn)
+        await ensure_connector_events_connector_id_nullable(conn)
         logger.info("Database tables created.")
     async with async_session() as db:
         try:
