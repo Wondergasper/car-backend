@@ -2,7 +2,7 @@
 Pydantic schemas for API validation - upgraded for multi-tenant architecture.
 """
 from pydantic import BaseModel, EmailStr, Field
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from datetime import datetime
 from uuid import UUID
 from app.models.database import UserRole, ConnectorStatus, AuditStatus, AuditType, FindingSeverity, FindingStatus, SubscriptionTier, DocumentType
@@ -175,6 +175,9 @@ class AuditResponse(BaseModel):
     medium_count: int
     low_count: int
     compliance_score: Optional[int]
+    scope: Optional[Dict[str, Any]] = None
+    report_storage_key: Optional[str] = None
+    report_generated_at: Optional[datetime] = None
     created_at: datetime
     completed_at: Optional[datetime]
 
@@ -194,7 +197,12 @@ class FindingResponse(BaseModel):
     recommendation: str
     status: FindingStatus
     auto_fixable: bool
+    auto_fix_suggestion: Optional[str] = None
+    evidence: Optional[Dict[str, Any]] = None
+    affected_records: Optional[int] = None
+    resolution_notes: Optional[str] = None
     created_at: datetime
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
